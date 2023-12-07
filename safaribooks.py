@@ -6,6 +6,7 @@ import sys
 import json
 import shutil
 import pathlib
+import asyncio
 import getpass
 import logging
 import argparse
@@ -15,7 +16,7 @@ import datetime
 from html import escape
 from random import random
 from lxml import html, etree
-from multiprocessing import Process, Queue, Value
+from multiprocessing import Queue, Value
 from urllib.parse import urljoin, urlparse, parse_qs, quote_plus
 
 
@@ -217,14 +218,6 @@ class Display:
         return message
 
 
-class WinQueue(list):  # TODO: error while use `process` in Windows: can't pickle _thread.RLock objects
-    def put(self, el):
-        self.append(el)
-
-    def qsize(self):
-        return self.__len__()
-
-
 class SafariBooks:
     LOGIN_URL = ORLY_BASE_URL + "/member/auth/login/"
     LOGIN_ENTRY_URL = SAFARI_BASE_URL + "/login/unified/?next=/home/"
@@ -422,7 +415,7 @@ class SafariBooks:
         self.images = []
 
         self.display.info("Downloading book contents... (%s chapters)" % len(self.book_chapters), state=True)
-        self.BASE_HTML = self.BASE_01_HTML + (self.KINDLE_HTML if not args.kindle else "") + self.BASE_02_HTML
+        self.BASE_HTML = self.BASE_01_HTML + (self.KINDLE_HTML if not self.args.kindle else "") + self.BASE_02_HTML
 
         self.cover = False
         self.get()
@@ -440,23 +433,23 @@ class SafariBooks:
             self.filename = self.book_chapters[0]["filename"]
             self.save_page_html(cover_html)
 
-        self.css_done_queue = Queue(0) if "win" not in sys.platform else WinQueue()
+        self.css_done_queue = Queue(0) 
         self.display.info("Downloading book CSSs... (%s files)" % len(self.css), state=True)
         self.collect_css()
-        self.images_done_queue = Queue(0) if "win" not in sys.platform else WinQueue()
+        self.images_done_queue = Queue(0) 
         self.display.info("Downloading book images... (%s files)" % len(self.images), state=True)
         self.collect_images()
 
         self.display.info("Creating EPUB file...", state=True)
         self.create_epub()
 
-        if not args.no_cookies:
+        if not self.args.no_cookies:
             json.dump(self.session.cookies.get_dict(), open(COOKIES_FILE, "w"))
 
         self.display.done(os.path.join(self.BOOK_PATH, self.book_id + ".epub"))
         self.display.unregister()
 
-        if not self.display.in_error and not args.log:
+        if not self.display.in_error and not self.args.log:
             os.remove(self.display.log_file)
 
     def handle_cookie_update(self, set_cookie_headers):
@@ -944,25 +937,16 @@ class SafariBooks:
         self.images_done_queue.put(1)
         self.display.state(len(self.images), self.images_done_queue.qsize())
 
-    def _start_multiprocessing(self, operation, full_queue):
-        if len(full_queue) > 5:
-            for i in range(0, len(full_queue), 5):
-                self._start_multiprocessing(operation, full_queue[i:i + 5])
 
-        else:
-            process_queue = [Process(target=operation, args=(arg,)) for arg in full_queue]
-            for proc in process_queue:
-                proc.start()
+    def _start_parallel_download(self, operation, work):
+        loop = asyncio.get_event_loop()
+        futures = [loop.run_in_executor(None, operation, job) for job in work]
+        loop.run_until_complete(asyncio.gather(*futures))
 
-            for proc in process_queue:
-                proc.join()
 
     def collect_css(self):
         self.display.state_status.value = -1
-
-        # "self._start_multiprocessing" seems to cause problem. Switching to mono-thread download.
-        for css_url in self.css:
-            self._thread_download_css(css_url)
+        self._start_parallel_download(self._thread_download_css, self.css)
 
     def collect_images(self):
         if self.display.book_ad_info == 2:
@@ -970,12 +954,8 @@ class SafariBooks:
                               "    If you want to be sure that all the images will be downloaded,\n"
                               "    please delete the output directory '" + self.BOOK_PATH +
                               "' and restart the program.")
-
         self.display.state_status.value = -1
-
-        # "self._start_multiprocessing" seems to cause problem. Switching to mono-thread download.
-        for image_url in self.images:
-            self._thread_download_images(image_url)
+        self._start_parallel_download(self._thread_download_images, self.images)
 
     def create_content_opf(self):
         self.css = next(os.walk(self.css_path))[2]
