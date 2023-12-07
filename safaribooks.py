@@ -311,7 +311,7 @@ class SafariBooks:
 
     def __init__(self, args):
         self.args = args
-        self.display = Display("info_%s.log" % escape(args.bookid))
+        self.display = Display("info_%s.log" % ''.join(escape(bookid) for bookid in args.bookids))
         self.display.intro()
 
         self.session = requests.Session()
@@ -338,7 +338,13 @@ class SafariBooks:
 
         self.check_login()
 
-        self.book_id = args.bookid
+        for book_id in args.bookids:
+            self.book_id = book_id
+            self.process_current_book()
+
+    def process_current_book(self):
+        print(self.book_id)
+        return
         self.api_url = self.API_TEMPLATE.format(self.book_id)
 
         self.display.info("Retrieving book info...")
@@ -1088,8 +1094,8 @@ if __name__ == "__main__":
     )
     arguments.add_argument("--help", action="help", default=argparse.SUPPRESS, help='Show this help message.')
     arguments.add_argument(
-        "bookid", metavar='<BOOK ID>',
-        help="Book digits ID that you want to download. You can find it in the URL (X-es):"
+        "bookids", metavar='<BOOK ID>', nargs='+',
+        help="Book digits IDs splited with space that you want to download. You can find it in the URL (X-es):"
              " `" + SAFARI_BASE_URL + "/library/view/book-name/XXXXXXXXXXXXX/`"
     )
 
