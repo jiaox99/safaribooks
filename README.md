@@ -57,7 +57,7 @@ Like: `https://www.safaribooksonline.com/library/view/test-driven-development-wi
 #### Program options:
 ```shell
 $ python3 safaribooks.py --help
-usage: safaribooks.py [--cred <EMAIL:PASS> | --login] [--no-cookies]
+usage: safaribooks.py [--cred <EMAIL:PASS> | --login] [--no-cookies] [--playlist ID]
                       [--kindle] [--preserve-log] [--help]
                       <BOOK ID>
 
@@ -73,6 +73,9 @@ optional arguments:
   --cred <EMAIL:PASS>  Credentials used to perform the auth login on Safari
                        Books Online. Es. ` --cred
                        "account_mail@mail.com:password01" `.
+  --playlist ID        Download all the book of a playlist. You can find the
+                       playlist ID in the URL:
+                       `https://learning.oreilly.com/playlists/XXXXXXXXXXXXX/`
   --login              Prompt for credentials used to perform the auth login
                        on Safari Books Online.
   --no-cookies         Prevent your session data to be saved into

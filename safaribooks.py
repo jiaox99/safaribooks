@@ -11,6 +11,7 @@ import logging
 import argparse
 import requests
 import traceback
+import datetime
 from html import escape
 from random import random
 from lxml import html, etree
@@ -229,6 +230,7 @@ class SafariBooks:
     LOGIN_ENTRY_URL = SAFARI_BASE_URL + "/login/unified/?next=/home/"
 
     API_TEMPLATE = SAFARI_BASE_URL + "/api/v1/book/{0}/"
+    PLAYLIST_TEMPLATE = SAFARI_BASE_URL + "/api/v2/collections/{0}"
 
     BASE_01_HTML = "<!DOCTYPE html>\n" \
                    "<html lang=\"en\" xml:lang=\"en\" xmlns=\"http://www.w3.org/1999/xhtml\"" \
@@ -311,7 +313,8 @@ class SafariBooks:
 
     def __init__(self, args):
         self.args = args
-        self.display = Display("info_%s.log" % ''.join(escape(bookid) for bookid in args.bookids))
+        self.books_dir = "Books"
+        self.display = Display("info_%s.log" % datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
         self.display.intro()
 
         self.session = requests.Session()
@@ -338,13 +341,50 @@ class SafariBooks:
 
         self.check_login()
 
+        if args.playlist is not None:
+            args.bookids = self.get_playlist_books()
         for book_id in args.bookids:
             self.book_id = book_id
             self.process_current_book()
-
+    
+    def get_playlist_books(self):
+        url = self.PLAYLIST_TEMPLATE.format(self.args.playlist)
+        response = self.requests_provider(url)
+        if response == 0:
+            self.display.exit("API: unable to retrieve the playlist")
+            
+        response = response.json()
+        
+        if not isinstance(response, dict) or len(response.keys()) == 1:
+            self.display.exit(self.display.api_error(response))
+            
+        if "content" not in response or not len(response["content"]):
+            self.display.exit("API: unable to retrieve playlist items")
+            
+        base_dir = "Playlists"
+        pdir = response.get("name")
+        self.books_dir = os.path.join(PATH, base_dir, self.escape_dirname(pdir))
+        ourns = [book.get("ourn") for book in response.get("content")]
+        ids = [self.get_book_id(book)
+               for book in response.get("content",{})]
+        ids = list(filter(None, ids))
+        return ids
+        
+    def get_book_id(self, book):
+        if book.get("ourn"):
+            result = re.search('urn:orm:book:([^:]*)(?::.+)*', book.get("ourn"))
+            if result:
+                return result.group(1)
+        elif book.get("metadata", {}):
+            return book.get("metadata", {}).get("identifier", None)
+        else:
+            api_url = book.get("api_url")
+            result = re.search('/api/v[0-9]+/book/([^/]*)/?.*', api_url)
+            if result:
+                return result.group(1)
+        return None    
+    
     def process_current_book(self):
-        print(self.book_id)
-        return
         self.api_url = self.API_TEMPLATE.format(self.book_id)
 
         self.display.info("Retrieving book info...")
@@ -365,9 +405,9 @@ class SafariBooks:
         self.clean_book_title = "".join(self.escape_dirname(self.book_title).split(",")[:2]) \
                                 + " ({0})".format(self.book_id)
 
-        books_dir = os.path.join(PATH, "Books")
+        books_dir = os.path.join(PATH, self.books_dir)
         if not os.path.isdir(books_dir):
-            os.mkdir(books_dir)
+            os.mkdirs(books_dir, exist_ok=True)
 
         self.BOOK_PATH = os.path.join(books_dir, self.clean_book_title)
         self.display.set_output_dir(self.BOOK_PATH)
@@ -1094,9 +1134,14 @@ if __name__ == "__main__":
     )
     arguments.add_argument("--help", action="help", default=argparse.SUPPRESS, help='Show this help message.')
     arguments.add_argument(
-        "bookids", metavar='<BOOK ID>', nargs='+',
+        "bookids", metavar='<BOOK ID>', nargs='*',
         help="Book digits IDs splited with space that you want to download. You can find it in the URL (X-es):"
              " `" + SAFARI_BASE_URL + "/library/view/book-name/XXXXXXXXXXXXX/`"
+    )
+    
+    arguments.add_argument(
+        "--playlist", dest="playlist",
+        help="Playlist from which you want to download all books"
     )
 
     args_parsed = arguments.parse_args()
@@ -1124,6 +1169,9 @@ if __name__ == "__main__":
     else:
         if args_parsed.no_cookies:
             arguments.error("invalid option: `--no-cookies` is valid only if you use the `--cred` option")
+
+    if not args_parsed.playlist and len(args_parsed.bookids) == 0:
+        arguments.error("Either a playlist ID or at least one BOOK ID must be specified")
 
     SafariBooks(args_parsed)
     # Hint: do you want to download more then one book once, initialized more than one instance of `SafariBooks`...
