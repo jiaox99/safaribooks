@@ -304,6 +304,15 @@ class SafariBooks:
 
     COOKIE_FLOAT_MAX_AGE_PATTERN = re.compile(r'(max-age=\d*\.\d*)', re.IGNORECASE)
 
+    def load_cookie(self):
+        cookie = json.load(open(COOKIES_FILE))
+        if isinstance(cookie, list):
+            cookie_list = cookie
+            cookie = {}
+            for item in cookie_list:
+                cookie[item["name"]] = item["value"]
+        return cookie
+
     def __init__(self, args):
         self.args = args
         self.books_dir = "Books"
@@ -324,7 +333,7 @@ class SafariBooks:
                 self.display.exit("Login: unable to find `cookies.json` file.\n"
                                   "    Please use the `--cred` or `--login` options to perform the login.")
 
-            self.session.cookies.update(json.load(open(COOKIES_FILE)))
+            self.session.cookies.update(self.load_cookie())
 
         else:
             self.display.info("Logging into Safari Books Online...", state=True)
